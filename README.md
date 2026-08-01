@@ -1,19 +1,20 @@
-# Secure Chat Room
+# اتاق گفت‌وگوی امن
 
-A multi-user secure chat room implemented in Python using TCP sockets, TLS/SSL, and SQLite.
+یک پروژه چت چندکاربره امن که با پایتون، سوکت TCP، TLS/SSL و SQLite پیاده‌سازی شده است.
 
-## Features
+## ویژگی‌ها
 
-- Secure TCP communication using TLS/SSL
-- Multi-client chat room
-- User authentication
-- SQLite database for users and messages
-- Recovery of missed messages after reconnecting
-- Online users list
-- Rate limiting to reduce message spam
-- NDJSON protocol: one JSON message per line
+- ارتباط امن با استفاده از TLS/SSL
+- پشتیبانی از چند کاربر به‌صورت هم‌زمان
+- احراز هویت کاربران
+- استفاده از SQLite برای ذخیره کاربران و پیام‌ها
+- بازیابی پیام‌های از دست‌رفته بعد از اتصال مجدد
+- نمایش کاربران آنلاین
+- محدودسازی نرخ ارسال پیام برای کاهش اسپم
+- استفاده از پروتکل NDJSON یعنی هر پیام JSON در یک خط
 
-## Project Structure
+## ساختار پروژه
+
 ```text
 secure-chat-room/
 ├── client/
@@ -21,8 +22,8 @@ secure-chat-room/
 ├── server/
 │   └── server.py
 ├── certs/
-│   ├── server.crt        # Ignored by Git
-│   └── server.key        # Ignored by Git
+│   ├── server.crt        # در Git نادیده گرفته می‌شود
+│   └── server.key        # در Git نادیده گرفته می‌شود
 ├── docs/
 │   └── protocol.md
 ├── .gitignore
