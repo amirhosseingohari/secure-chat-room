@@ -90,7 +90,7 @@ class ChatClient:
         """
         try:
             json_data = json.dumps(data)
-            self.ssl_sock.sendall(json_data.encode('utf-8'))
+            self.ssl_sock.sendall((json_data + "\n").encode("utf-8"))
         except Exception as e:
             print(f"\n[!] خطا در ارسال بسته داده: {e}")
 
