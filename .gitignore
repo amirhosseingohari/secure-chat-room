@@ -1,0 +1,24 @@
+__pycache__/
+venv/
+*.pyc
+*.key
+*.pem
+*.crt
+.env
+chat.db
+server.log
+# Python
+__pycache__/
+venv/
+*.pyc
+
+# TLS certificates / private keys
+certs/
+*.key
+*.pem
+*.crt
+
+# Local database and runtime logs
+chat.db
+server.log
+*.log
