@@ -7,14 +7,13 @@ import time
 # ==========================================
 # تنظیمات اولیه اتصال به سرور چت امن
 # ==========================================
-SERVER_HOST = '127.0.0.1'  # آدرس آی‌پای سرور (در صورت اجرا روی سیستم مجزا تغییر یابد)
-SERVER_PORT = 8443        # پورت اختصاص داده شده به سرویس چت SSL/TLS
+SERVER_HOST = '192.168.233.1'  # آدرس آی‌پای سرور
+SERVER_PORT = 8443            # پورت اختصاص داده شده به سرویس چت SSL/TLS
 
 class ChatClient:
     """
     کلاس مدیریت کلاینت چت روم امن
-    این کلاس مسئول برقراری ارتباط SSL/TLS، احراز هویت، ارسال/دریافت پیام و
-    تلاش برای اتصال مجدد (Reconnect) در صورت قطعی شبکه می‌باشد.
+    پشتیبانی کامل از TCP Framing با Buffer، احراز هویت، Reconnect و دریافت آنلاین پیام‌ها.
     """
     def __init__(self, host, port):
         self.host = host
@@ -24,13 +23,13 @@ class ChatClient:
         self.password = None
         self.running = False
         self.last_message_id = 0  # ذخیره آخرین شناسه پیام دریافتی جهت سناریوی Reconnect
+        self.buffer = ""          # بافر اختصاصی جهت پردازش صحیح TCP Framing (\n)
 
     def create_ssl_context(self):
         """
         ایجاد کانتکست امنیتی TLS برای رمزنگاری کانال ارتباطی
         """
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        # غیرفعال‌سازی بررسی نام هاست و گواهی‌نامه به دلیل استفاده از Self-Signed Certificate در فاز توسعه
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         return context
@@ -44,10 +43,49 @@ class ChatClient:
             context = self.create_ssl_context()
             self.ssl_sock = context.wrap_socket(raw_sock, server_hostname=self.host)
             self.ssl_sock.connect((self.host, self.port))
+            self.buffer = ""  # ریست کردن بافر در هر اتصال جدید
             return True
         except Exception as e:
             print(f"\n[!] خطا در برقراری ارتباط امن با سرور: {e}")
             return False
+
+    def send_json(self, data):
+        """
+        ارسال داده‌ها با فرمت JSON به همراه کاراکتر Delimiter (\n) جهت TCP Framing
+        """
+        try:
+            json_data = json.dumps(data)
+            self.ssl_sock.sendall((json_data + "\n").encode("utf-8"))
+        except Exception as e:
+            print(f"\n[!] خطا در ارسال بسته داده: {e}")
+
+    def read_line(self):
+        """
+        خواندن یک خط کامل از سوکت بر اساس '\n' (حل کامل مشکل TCP Framing)
+        """
+        while "\n" not in self.buffer:
+            try:
+                data = self.ssl_sock.recv(4096).decode('utf-8')
+                if not data:
+                    return None
+                self.buffer += data
+            except Exception:
+                return None
+
+        line, self.buffer = self.buffer.split("\n", 1)
+        return line.strip()
+
+    def receive_json(self):
+        """
+        دریافت و پارس کردن یک شیء JSON از بافر
+        """
+        line = self.read_line()
+        if not line:
+            return None
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            return None
 
     def authenticate(self):
         """
@@ -57,7 +95,6 @@ class ChatClient:
         self.username = input("نام کاربری: ").strip()
         self.password = input("رمز عبور: ").strip()
 
-        # بسته درخواست ورود با فرمت JSON
         auth_payload = {
             "action": "login",
             "username": self.username,
@@ -71,7 +108,7 @@ class ChatClient:
         if response and response.get("status") == "success":
             print(f"\n[+] احراز هویت موفقیت‌آمیز بود! خوش آمدید {self.username}.")
             
-            # دریافت و نمایش پیام‌های از دست رفته در زمان قطعی یا ورود مجدد
+            # دریافت و نمایش پیام‌های از دست رفته در زمان غیبت
             if "missed_messages" in response and response["missed_messages"]:
                 print("\n--- 📩 پیام‌های دریافتی در زمان غیبت شما ---")
                 for msg in response["missed_messages"]:
@@ -80,31 +117,9 @@ class ChatClient:
                 print("-------------------------------------------\n")
             return True
         else:
-            reason = response.get("message", "پاسخی دریافت نشد") if response else "عدم پاسخگویی سرور"
+            reason = response.get("message", "عدم پاسخگویی سرور") if response else "عدم پاسخگویی سرور"
             print(f"[-] ورود ناموفق: {reason}")
             return False
-
-    def send_json(self, data):
-        """
-        توابع کمکی جهت تبدیل داده‌ها به JSON و ارسال روی سوکت TLS
-        """
-        try:
-            json_data = json.dumps(data)
-            self.ssl_sock.sendall((json_data + "\n").encode("utf-8"))
-        except Exception as e:
-            print(f"\n[!] خطا در ارسال بسته داده: {e}")
-
-    def receive_json(self):
-        """
-        توابع کمکی جهت خواندن داده از سوکت و تبدیل آن به شیء JSON
-        """
-        try:
-            data = self.ssl_sock.recv(4096).decode('utf-8')
-            if not data:
-                return None
-            return json.loads(data)
-        except Exception:
-            return None
 
     def receive_messages(self):
         """
@@ -114,9 +129,14 @@ class ChatClient:
             data = self.receive_json()
             if data:
                 msg_type = data.get("type")
+                status = data.get("status")
                 
-                # دریافت پیام‌های عمومی یا برودکست سیستم
-                if msg_type in ["chat", "broadcast"]:
+                # مدیریت هشدارها (مثل Rate Limit یا خطاهای سرور)
+                if status == "error":
+                    print(f"\n[!] خطا از طرف سرور: {data.get('message')}\n> ", end="")
+
+                # دریافت پیام‌های چت یا برودکست سیستم
+                elif msg_type in ["chat", "broadcast"]:
                     sender = data.get("sender", "System")
                     content = data.get("content", "")
                     timestamp = data.get("time", "")
@@ -132,9 +152,9 @@ class ChatClient:
                     users = data.get("users", [])
                     print(f"\n[لیست کاربران آنلاین ({len(users)} نفر)]: {', '.join(users)}\n> ", end="")
             else:
-                # مدیریت قطعی اتصال سرور
+                # مدیریت قطعی اتصال
                 if self.running:
-                    print("\n[!] اتصال به سرور قطع شد! تلاش برای بازیابی ارتباط...")
+                    print("\n[!] اتصال به سرور قطع شد! در حال تلاش برای بازیابی ارتباط...")
                     self.reconnect()
                 break
 
@@ -142,9 +162,13 @@ class ChatClient:
         """
         الگوریتم تلاش مجدد (Reconnection Mechanism) و دریافت پیام‌های Missed
         """
-        self.ssl_sock.close()
+        try:
+            self.ssl_sock.close()
+        except:
+            pass
+
         while self.running:
-            time.sleep(3)  # وقفه ۳ ثانیه‌ای بین هر تلاش
+            time.sleep(3)
             print("[...] در حال تلاش برای اتصال مجدد به سرور...")
             if self.connect():
                 reconnect_payload = {
@@ -157,6 +181,15 @@ class ChatClient:
                 res = self.receive_json()
                 if res and res.get("status") == "success":
                     print("[+] ارتباط مجدد با موفقیت برقرار گردید!")
+                    
+                    # دریافت پیام‌های زمان قطعی
+                    if "missed_messages" in res and res["missed_messages"]:
+                        print("\n--- 📩 پیام‌های زمان قطعی ---")
+                        for msg in res["missed_messages"]:
+                            print(f"[{msg['time']}] {msg['sender']}: {msg['content']}")
+                            self.last_message_id = max(self.last_message_id, msg.get('id', 0))
+                        print("----------------------------\n")
+
                     # راه‌اندازی مجدد ترد دریافت پیام
                     threading.Thread(target=self.receive_messages, daemon=True).start()
                     break
@@ -174,14 +207,12 @@ class ChatClient:
 
         self.running = True
         
-        # اجرای ترد پس‌زمینه برای دریافت آنلاین پیام‌ها
         recv_thread = threading.Thread(target=self.receive_messages, daemon=True)
         recv_thread.start()
 
         print("\n--- چت‌روم فعال گردید ---")
         print("دستورات: '/users' (مشاهده آنلاین‌ها) | '/exit' (خروج از برنامه)\n")
 
-        # حلقه گرفتن ورودی از کاربر در خط فرمان (CLI)
         while self.running:
             try:
                 msg = input("> ").strip()
@@ -190,7 +221,7 @@ class ChatClient:
 
                 if msg.lower() == '/exit':
                     self.running = False
-                    self.send_json({"action": "logout", "username": self.username})
+                    self.send_json({"action": "logout"})
                     print("در حال خروج از چت‌روم...")
                     break
                 elif msg.lower() == '/users':
@@ -198,15 +229,17 @@ class ChatClient:
                 else:
                     self.send_json({
                         "action": "send_msg",
-                        "content": msg,
-                        "username": self.username
+                        "content": msg
                     })
             except (KeyboardInterrupt, EOFError):
                 self.running = False
                 break
 
         if self.ssl_sock:
-            self.ssl_sock.close()
+            try:
+                self.ssl_sock.close()
+            except:
+                pass
 
 if __name__ == '__main__':
     client = ChatClient(SERVER_HOST, SERVER_PORT)
