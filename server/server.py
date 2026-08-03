@@ -9,7 +9,7 @@ import time
 import logging
 
 # تنظیمات اصلی سرور
-HOST = '127.0.0.1'
+HOST = '0.0.0.0'
 PORT = 8443
 CERT_DIR = 'certs'
 DB_PATH = 'server/chat.db'
